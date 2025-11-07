@@ -49,18 +49,21 @@ int main()
 
     wait_for_go();
 
-    test_LED_on();
-
 
    //FOR TESTING PURPOSES - NEED BREADBOARD FOR THIS
+
+
     gpio_set_function(10, GPIO_FUNC_SIO);
     gpio_set_dir(10, GPIO_OUT);
     gpio_put(10, true);       
 
+    printf("ToF pwr pin on\n");
+
     vl53l0 ToF = init_vl53l0(0, I2C_SDA, I2C_SCL, EN_P);
 
-    uint8_t reg = VL53L0_REF_REG_1;
+    printf("ToF initialised\n");
 
+    uint8_t reg = VL53L0_REF_REG_1;
 
 
     //CURRENTLY CRASHING WHEN TRYING TO WRITE A BYTE
@@ -69,9 +72,12 @@ int main()
     int succ = write_byte(&ToF, &reg);  
 
 
+
+
     //Turn the LED on if byte written successfully
     if (succ == 1){        
-        //test_LED_on();        
+        printf("Byte written!");
+        test_LED_on();
     }
 
     return 1;
@@ -97,7 +103,7 @@ void wait_for_go(){
 
     while(!tud_cdc_connected()){
         sleep_ms(100);
-        printf("Waiting...!");
+        printf("Waiting...!\n");
 
     }
 
@@ -105,7 +111,7 @@ void wait_for_go(){
     getchar();
 
     //Tell the device its going
-    printf("Going!");
+    printf("Going!\n");
 
 }
 
@@ -141,7 +147,6 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
     gpio_put(EN_pin, false);
 
 
-
     //Create the vl53l0 struct
     vl53l0 ToF_dev;
     ToF_dev.I2C_HW = HW_block;
@@ -156,16 +161,17 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 //Write a single byte to the provided VL53l0 device
 int write_byte(vl53l0 *dev, uint8_t *byte){
 
-    //Write one byte to the i2c register - then issue a stop
-    int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR_WRITE, byte, 1, false);
+    printf("Attempting to write byte \n");
 
-    
+    //Write one byte to the i2c register - then issue a stop
+    int succ = i2c_write_blocking_until(dev->I2C_HW, VL53L0_ADDR_WRITE, byte, 1, false, 5);
 
     //Check whether the byte was written
     if (succ == 1){        
         test_LED_on();
         return 1;
     }else{
+        printf("Failed to write byte!\n");
         return -1;
     }
 }
