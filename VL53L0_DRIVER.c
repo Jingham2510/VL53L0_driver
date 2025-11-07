@@ -2,10 +2,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
-
-
-
-
+#include "tusb.h"
 
 // I2C defines
 #define VL53L0_I2C_0 i2c0
@@ -97,8 +94,15 @@ Helper function to apply a wait until the USB bus recieves something (anything)
 */
 void wait_for_go(){
     
+
+    while(!tud_cdc_connected()){
+        sleep_ms(100);
+        printf("Waiting...!");
+
+    }
+
     //Wait for a serial bit/byte
-    get_char();
+    getchar();
 
     //Tell the device its going
     printf("Going!");
