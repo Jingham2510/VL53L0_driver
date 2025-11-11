@@ -49,8 +49,20 @@ typedef struct{
 #define EXPECTED_ID 0xEE
 
 
+//I2C Mode
 #define I2C_MODE 0x88
 #define I2C_MODE_STANDARD 0x00
+
+
+//2v8 mode
+#define EXTSUP_2V8 0x89
+
+
+//Power MGMT
+#define POW_MGMT 0x80
+
+//Internal tuning
+#define INTERNAL_TUNING 0xFF
 
 
 //Range settings (i.e. tell sensor to start the range then the mode)
@@ -64,6 +76,8 @@ typedef struct{
 
 //Range status register (i.e. the reading)
 #define VL53L0_RANGE_RESULT_STATUS 0x14
+
+
 
 
 
@@ -98,8 +112,16 @@ int read_single_range_blocking(vl53l0 *dev, uint16_t *buf);
 
 
 
+//Write a single byte to a specified register
 int write_register(vl53l0 *dev, uint8_t reg, uint8_t data);
 
+
+//Read a 16 bit value from a (pair of) register(s)
+int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf);
+
+
+//Read a single range measurement from the ToF device
+int get_range(vl53l0 *dev, uint8_t *buf);
 
 /*
 TO ADD:

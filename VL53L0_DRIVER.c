@@ -54,7 +54,12 @@ int main()
     vl53l0 ToF = init_vl53l0(0, I2C_SDA, I2C_SCL, EN_P);
 
 
+    //16 bits is 2 lots of 8 bit registers
+    int8_t result[2];
 
+    if(get_range(&ToF, result) == 1){
+        printf("RANGE VAL: %d", result);
+    }
 
     return 1;
 
@@ -161,8 +166,22 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 //Setup the default config of the device (particularly to 2v8 mode)
 int setup_default_config(vl53l0 *dev){
 
+    //Set the voltage mode to 2v8
+    write_register(dev, EXTSUP_2V8, 0x01);
+
     //Set the I2C mode to standard
     write_register(dev, I2C_MODE, I2C_MODE_STANDARD);
+
+    //Setup the power management
+    write_register(dev, POW_MGMT, 0x01);
+
+    //Internal tuning
+    write_register(dev, INTERNAL_TUNING, 0x01);
+
+    //Set the default range mode
+    write_register(dev, VL53L0_SYSRANGE_START, VL53L0_SYS_RANGE_MODE_SINGLE);
+
+    
 
 }
 
@@ -236,30 +255,65 @@ int write_register(vl53l0 *dev, uint8_t reg, uint8_t data){
 }
 
 
+//Read a 16 bit value from a register
+int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
 
 
+    //Request the device primes the required register
+    int succ = write_byte(dev, &reg);
 
-//Read the range from the device
-int read_single_range_blocking(vl53l0 *dev, uint16_t *buf){
+    if(succ = 1){
 
-    
-    //Indicates a succesful read/write
-    int succ;
+        succ = i2c_read_burst_blocking(dev->I2C_HW, VL53L0_ADDR, buf, 2);
+
+        if (succ == 2){
+            return 1;
+        }else{
+            //Dont return succ here as there is a risk that it equates to 1 (i.e. 1 byte read)
+            return -1;
+        }
 
 
-    //Set the mode
-    succ = write_register(dev, VL53L0_SYSRANGE_START, VL53L0_SYS_RANGE_MODE_SINGLE);
-
-    //Ensure the mode was set correctly
-    if (succ != 1){
+    }else{
+        printf("FAILED TO READ REGISTER");
         return -1;
     }
 
 
-    //Wait until the device has a measurement ready
+}
+
+
+//Read the range from the device
+int get_range(vl53l0 *dev, uint8_t *buf){
+
+    //Tell the device to take a measurement
+    write_register(dev, VL53L0_SYSRANGE_START, VL53L0_SYS_RANGE_MODE_SINGLE);
+
+    int timeout = 0;
+    uint8_t timeout_buf;
+    
+    read_byte(dev, VL53L0_RANGE_RESULT_STATUS, &timeout_buf);
+
+   //Wait until the device has a measurement ready
+    while ((timeout_buf & 0x07) == 0){        
+        timeout++;
+        sleep_us(5000);
+        
+
+        if (timeout> 50){
+                printf("READING TIMEOUT");
+                return -1;
+        }
+
+        read_byte(dev, VL53L0_RANGE_RESULT_STATUS, &timeout_buf);
+
+    }
 
     //Read the range value (2 bytes)
+    read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS, buf);
 
+    //Clear the interupts
+    return write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
 
 }
 
