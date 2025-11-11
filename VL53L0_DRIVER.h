@@ -40,21 +40,17 @@ typedef struct{
 #define DEFAULT_BAUD 100000
 
 
-//WRITE and READ CMDS/ADDRESSES
-#define VL53L0_ADDR_WRITE 0x29
-#define VL53L0_ADDR_READ 0x53
+//WRITE AND READ ADDRESS
+#define VL53L0_ADDR 0x29
 
-//Reference registers and there corresponding values (for confirmation of I2C interface)
-#define VL53L0_REF_REG_1 0xC0
-#define VL53L0_REF_REG_1_EXP_DAT 0xEE
-#define VL53L0_REF_REG_2 0xC1
-#define VL53L0_REF_REG_2_EXP_DAT 0xAA
-#define VL53L0_REF_REG_3 0xC2
-#define VL53L0_REF_REG_3_EXP_DAT 0x10
-#define VL53L0_REF_REG_4 0x51
-#define VL53L0_REF_REG_4_EXP_DAT 0x0099
-#define VL53L0_REF_REG_5 0x61
-#define VL53L0_REF_REG_5_EXP_DAT 0x0000
+//Reference registers and there corresponding values 
+//Identification
+#define MODEL_ID 0xC0
+#define EXPECTED_ID 0xEE
+
+
+#define I2C_MODE 0x88
+#define I2C_MODE_STANDARD 0x00
 
 
 //Range settings (i.e. tell sensor to start the range then the mode)
@@ -70,12 +66,14 @@ typedef struct{
 #define VL53L0_RANGE_RESULT_STATUS 0x14
 
 
-//Identification
-#define MODEL_ID 0xC0
+
 
 
 //Initialise the pins to connect with the vl53l0
 vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin);
+
+//Setup the device to a default running state
+int setup_default_config();
 
 
 /*
@@ -99,10 +97,12 @@ Read a single range measurement from the device
 int read_single_range_blocking(vl53l0 *dev, uint16_t *buf);
 
 
+
+int write_register(vl53l0 *dev, uint8_t reg, uint8_t data);
+
+
 /*
 TO ADD:
-
--Veriifcation of ocnnection by reading preset registers
 -Read of a two byte value (i.e. range)
 */
 
