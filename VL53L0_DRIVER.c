@@ -144,6 +144,7 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
        
 
         //Setup the default config of the device
+        setup_default_config(&ToF_dev);
 
 
         printf("ToF initialised\n");
@@ -227,7 +228,6 @@ int write_register(vl53l0 *dev, uint8_t reg, uint8_t data){
 
     //Check whether the byte was written
     if (succ == 2){
-        printf("SUCCESFULLY WRITTEN TO REG");
         return 1;
     }else{
         printf("FAILED TO WRITE TO REG - %d", succ);
