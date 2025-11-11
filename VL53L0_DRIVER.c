@@ -7,8 +7,8 @@
 // I2C defines
 #define VL53L0_I2C_0 i2c0
 #define VL53L0_I2C_1 i2c1
-#define I2C_SDA 8
-#define I2C_SCL 9
+#define I2C_SDA 16
+#define I2C_SCL 17
 #define EN_P 10
 
 
@@ -44,34 +44,19 @@ void wait_for_go();
 
 int main()
 {
+
     stdio_init_all();
 
 
     wait_for_go();
 
-
-   //FOR TESTING PURPOSES - NEED BREADBOARD FOR THIS
-
-
-    gpio_set_function(10, GPIO_FUNC_SIO);
-    gpio_set_dir(10, GPIO_OUT);
-    gpio_put(10, true);       
-
-    printf("ToF pwr pin on\n");
-
     vl53l0 ToF = init_vl53l0(0, I2C_SDA, I2C_SCL, EN_P);
 
-    printf("ToF initialised\n");
 
     uint8_t reg = VL53L0_REF_REG_1;
 
-
-    //CURRENTLY CRASHING WHEN TRYING TO WRITE A BYTE
-
     //Attempt to write a single random byte
     int succ = write_byte(&ToF, &reg);  
-
-
 
 
     //Turn the LED on if byte written successfully
@@ -123,16 +108,20 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 
     i2c_inst_t *HW_block;
 
-    //Default to the first I2C block
+    //Default to the first I2C block (incase of erroneous input)
     if (I2C_HW != 1){
         HW_block = VL53L0_I2C_0;
-    }else{
+    }else if(I2C_HW == 1){
         HW_block = VL53L0_I2C_1;
     }
 
 
     //Turn on the I2C hw block
-    i2c_init(HW_block, DEFAULT_BAUD);
+    if(i2c_init(HW_block, DEFAULT_BAUD) > DEFAULT_BAUD){
+        printf("DEVICE MAY BE OVERDRIVEN");
+    }
+
+    //printf("I2C HW BLOCK INITIALISED\n");
 
     //Setup the I2C pins 
     gpio_set_function(SDA_pin, GPIO_FUNC_I2C);
@@ -154,41 +143,63 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
     ToF_dev.SCL_PIN = SCL_pin;
     ToF_dev.EN_PIN = EN_pin;
 
-    return ToF_dev;
+
+
+    //Verify that we are connected to correct device
+    uint8_t buf;
+    int succ = read_byte(&ToF_dev, MODEL_ID, &buf);
+
+    if (succ == 1 && buf == 0xEE){      
+       
+
+        //Setup the default config of the device
+
+
+        printf("ToF initialised\n");
+        return ToF_dev;
+
+    }else{
+        printf("Read byte - %d\n", buf);
+        printf("ToF UNINITIALISED");
+    }
+
+
 }
 
 
 //Write a single byte to the provided VL53l0 device
 int write_byte(vl53l0 *dev, uint8_t *byte){
 
-    printf("Attempting to write byte \n");
+    printf("Attempting to write byte - %d \n", *byte);
 
     //Write one byte to the i2c register - then issue a stop
-    int succ = i2c_write_blocking_until(dev->I2C_HW, VL53L0_ADDR_WRITE, byte, 1, false, 5);
+    int succ = i2c_write_blocking_until(dev->I2C_HW, VL53L0_ADDR_WRITE, byte, 1, false, make_timeout_time_ms(1000));
 
     //Check whether the byte was written
-    if (succ == 1){        
-        test_LED_on();
+    if (succ == 1){    
         return 1;
-    }else{
-        printf("Failed to write byte!\n");
+    }else if (succ == -1){
+        printf("Failed to find device/No Acknowledgement!\n");
         return -1;
+    }else{
+        printf("Failed to write byte! - %d\n", succ);
+        return succ;
     }
 }
 
-//Read a single byte from the VL53l) device
-int read_byte(vl53l0 *dev, uint8_t *addr, uint8_t *buf){
+//Read a single byte from the VL53l0 device
+int read_byte(vl53l0 *dev, uint8_t addr, uint8_t *buf){
 
     //Indicates a succesful read/write
     int succ;
 
     //Write the address of interest
-    succ = write_byte(dev, addr);
+    succ = write_byte(dev, &addr);
 
     //Check that the write was succesful
     if (succ == 1){
         //Read from the i2c device
-        succ = i2c_read_blocking(dev->I2C_HW, VL53L0_ADDR_READ, buf, 1, false);
+        succ = i2c_read_blocking_until(dev->I2C_HW, VL53L0_ADDR_READ, buf, 1, false, make_timeout_time_ms(10));
 
     }else{
         return -1;
@@ -200,12 +211,11 @@ int read_byte(vl53l0 *dev, uint8_t *addr, uint8_t *buf){
     }else{
         return -1;
     }
-
 }
 
 
 //Updates a value in a register
-int update_register(vl53l0 *dev, uint8_t *reg, uint8_t *data){
+int write_register(vl53l0 *dev, uint8_t *reg, uint8_t *data){
 
 
     uint8_t data_to_write[2];
@@ -213,7 +223,7 @@ int update_register(vl53l0 *dev, uint8_t *reg, uint8_t *data){
     data_to_write[1] = *data;
 
     //Write addr then index then data to the VL53l0 device
-    int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR_WRITE, data_to_write, 2, false);
+    int succ = i2c_write_blocking_until(dev->I2C_HW, VL53L0_ADDR_WRITE, data_to_write, 2, false, make_timeout_time_ms(10));
 
     //Check whether the byte was written
     if (succ == 1){
@@ -222,6 +232,8 @@ int update_register(vl53l0 *dev, uint8_t *reg, uint8_t *data){
         return -1;
     }
 }
+
+
 
 
 
@@ -234,7 +246,7 @@ int read_single_range_blocking(vl53l0 *dev, uint16_t *buf){
 
 
     //Set the mode
-    succ = update_register(dev, VL53L0_SYSRANGE_START, VL53L0_SYS_RANGE_MODE_SINGLE);
+    succ = write_register(dev, VL53L0_SYSRANGE_START, VL53L0_SYS_RANGE_MODE_SINGLE);
 
     //Ensure the mode was set correctly
     if (succ != 1){

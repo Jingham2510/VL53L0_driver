@@ -37,11 +37,11 @@ typedef struct{
 
 }vl53l0;
 
-#define DEFAULT_BAUD 400000
+#define DEFAULT_BAUD 100000
 
 
 //WRITE and READ CMDS/ADDRESSES
-#define VL53L0_ADDR_WRITE 0x52
+#define VL53L0_ADDR_WRITE 0x29
 #define VL53L0_ADDR_READ 0x53
 
 //Reference registers and there corresponding values (for confirmation of I2C interface)
@@ -70,6 +70,10 @@ typedef struct{
 #define VL53L0_RANGE_RESULT_STATUS 0x14
 
 
+//Identification
+#define MODEL_ID 0xC0
+
+
 //Initialise the pins to connect with the vl53l0
 vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin);
 
@@ -86,7 +90,7 @@ int write_byte(vl53l0 *dev, uint8_t *byte);
 Read a single byte from the VL53L0
 Return a success/fail if the byte is written
 */
-int read_byte(vl53l0 *dev, uint8_t *addr, uint8_t *buf);
+int read_byte(vl53l0 *dev, uint8_t addr, uint8_t *buf);
 
 
 /*
