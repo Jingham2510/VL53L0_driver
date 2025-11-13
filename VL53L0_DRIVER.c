@@ -42,7 +42,8 @@ void test_LED_on();
 void wait_for_go();
 int init_interrupt(vl53l0 *dev);
 int load_def_config(vl53l0 *dev);
-
+int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture);
+int init_spad(vl53l0 *dev);
 
 int main()
 {
@@ -146,7 +147,7 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 
     //Verify that we are connected to correct device
     uint8_t buf;
-    int succ = read_byte(&ToF_dev, MODEL_ID, &buf);
+    int succ = read_register(&ToF_dev, MODEL_ID, &buf);
 
     if (succ == 1 && buf == EXPECTED_ID){      
        
@@ -178,16 +179,14 @@ int setup_default_config(vl53l0 *dev){
     write_register(dev, 0xFF, 0x01);
     write_register(dev, 0x00, 0x00);
     //Assign the stop variable
-    read_byte(dev, 0x91, &dev->stop_variable);
+    read_register(dev, 0x91, &dev->stop_variable);
     write_register(dev, 0x00, 0x01);
     write_register(dev, 0xff, 0x00);
     write_register(dev, 0x80, 0x00);
 
 
-    printf("I2C set ---------\n");
-
     uint8_t MSRC_read;
-    read_byte(dev, REG_MSRC_CONFIG_CONTROL, &MSRC_read);
+    read_register(dev, REG_MSRC_CONFIG_CONTROL, &MSRC_read);
     write_register(dev, REG_MSRC_CONFIG_CONTROL, MSRC_read | 0x12);
 
     write_16bit_register(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, 32);
@@ -206,10 +205,7 @@ int setup_default_config(vl53l0 *dev){
 
     
     //SPAD calibration
-    //init_spad(dev);
-
-    //Tuning setup
-    //init_tuning(dev);
+    init_spad(dev);
 
     //Default calibration
     load_def_config(dev);
@@ -219,6 +215,21 @@ int setup_default_config(vl53l0 *dev){
     init_interrupt(dev);
 
 
+    write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0x01);
+    if (!performSingleRefCalibration(dev, 0x40))
+    {
+        return -1;
+    }
+
+    write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0x02);
+    if (!performSingleRefCalibration(dev, 0x00))
+    {
+        return -1;
+    }
+
+    // "restore the previous Sequence Config"
+    write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xE8);
+
 }
 
 
@@ -227,6 +238,45 @@ int init_spad(vl53l0 *dev){
 
     //Get the spad info
     uint8_t spad_count, spad_type_is_apeture;
+    
+    bool spad_type_is_aperture;
+    if (get_spad_info(dev, &spad_count, &spad_type_is_aperture) == false)
+    {
+        return false;
+    }
+
+    // The SPAD map (RefGoodSpadMap) is read by VL53L0X_get_info_from_device() in
+    // the API, but the same data seems to be more easily readable from
+    // GLOBAL_CONFIG_SPAD_ENABLES_REF_0 through _6, so read it from there
+    uint8_t ref_spad_map[6];
+    read_multi(dev, GLOBAL_CONFIG_SPAD_ENABLES_REF_0, ref_spad_map, 6);
+
+    // -- VL53L0X_set_reference_spads() begin (assume NVM values are valid)
+
+    write_register(dev, 0xFF, 0x01);
+    write_register(dev,DYNAMIC_SPAD_REF_EN_START_OFFSET, 0x00);
+    write_register(dev,DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD, 0x2C);
+    write_register(dev,0xFF, 0x00);
+    write_register(dev,GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4);
+
+    uint8_t first_spad_to_enable = spad_type_is_aperture ? 12 : 0; // 12 is the first aperture spad
+    uint8_t spads_enabled = 0;
+
+    for (uint8_t i = 0; i < 48; i++)
+    {
+        if (i < first_spad_to_enable || spads_enabled == spad_count)
+        {
+            // This bit is lower than the first one that should be enabled, or
+            // (reference_spad_count) bits have already been enabled, so zero this bit
+            ref_spad_map[i / 8] &= ~(1 << (i % 8));
+        }
+        else if ((ref_spad_map[i / 8] >> (i % 8)) & 0x1)
+        {
+            spads_enabled++;
+        }
+    }
+
+    write_multi(dev, GLOBAL_CONFIG_SPAD_ENABLES_REF_0, ref_spad_map, 6);
 
 
 
@@ -340,17 +390,17 @@ int init_interrupt(vl53l0 *dev){
     printf("PRE_HV\n");
 
     uint8_t HV_MUX = 0;
-    read_byte(dev, GPIO_HV_MUX_ACTIVE_HIGH, &HV_MUX);
+    read_register(dev, GPIO_HV_MUX_ACTIVE_HIGH, &HV_MUX);
     write_register(dev, GPIO_HV_MUX_ACTIVE_HIGH, (HV_MUX & ~0x10));
     write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
 
-    printf("POST_HV\n");
+
 
     //TIMING BUDGET CONST
     //const uint16_t TIME_BUDGET_us = 2870;
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xe8);
 
-    //write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0x01);
+   
 
 
 
@@ -358,28 +408,10 @@ int init_interrupt(vl53l0 *dev){
 }
 
 
-//Write a single byte to the provided VL53l0 device
-int write_byte(vl53l0 *dev, uint8_t *byte){
 
-    //printf("Attempting to write byte - %d \n", *byte);
-
-    //Write one byte to the i2c register - then issue a stop
-    int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, byte, 1, false);
-
-    //Check whether the byte was written
-    if (succ == 1){    
-        return 1;
-    }else if (succ == -1){
-        printf("Failed to find device/No Acknowledgement!\n");
-        return -1;
-    }else{
-        printf("Failed to write byte! - %d\n", succ);
-        return succ;
-    }
-}
 
 //Read a single byte from the VL53l0 device
-int read_byte(vl53l0 *dev, uint8_t reg, uint8_t *buf){
+int read_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
 
     //Indicates a succesful write
     int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, &reg, 1, true);
@@ -397,7 +429,7 @@ int read_byte(vl53l0 *dev, uint8_t reg, uint8_t *buf){
     if (succ == 1){
         return 1;
     }else{
-        printf("READ ERR - %d\n", succ);
+        printf("%04x -READ ERR - %d\n", reg, succ);
         return succ;
     }
 }
@@ -418,7 +450,7 @@ int write_register(vl53l0 *dev, uint8_t reg, uint8_t data){
     if (succ == 2){
         return 1;
     }else{
-        printf("FAILED TO WRITE TO REG - %d\n", succ);
+        printf("%04x - FAILED TO WRITE TO REG - %d\n", succ);
         return succ;
     }
 }
@@ -429,8 +461,8 @@ int write_16bit_register(vl53l0 *dev, uint8_t reg, uint16_t data){
     uint8_t data_to_write[3];
     data_to_write[0] = reg;
     //MSB first
-    data_to_write[1] = (uint8_t) (data >> 8);
-    data_to_write[2] = (uint8_t) (data << 8);
+    data_to_write[1] = (data >> 8) & 0xFF;
+    data_to_write[2] = data & 0xFF;
 
 
     int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, data_to_write, 3, false);
@@ -499,7 +531,7 @@ int get_range(vl53l0 *dev, uint8_t *buf){
     uint8_t timeout_buf;
 
      // Wait until startbit is cleared
-    read_byte(dev, SYSRANGE_START, &timeout_buf);
+    read_register(dev, SYSRANGE_START, &timeout_buf);
     while(timeout_buf & 0x01){
         timeout++;
         sleep_us(5000);
@@ -507,12 +539,12 @@ int get_range(vl53l0 *dev, uint8_t *buf){
             printf("STARTBIT CLEAR TIMEOUT");
             return -1;
         }
-        read_byte(dev, SYSRANGE_START, &timeout_buf);
+        read_register(dev, SYSRANGE_START, &timeout_buf);
     }
 
     timeout = 0;
     
-    read_byte(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
+    read_register(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
 
     
    //Wait until the device has a measurement ready
@@ -526,7 +558,7 @@ int get_range(vl53l0 *dev, uint8_t *buf){
                 return -1;
         }
 
-        read_byte(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
+        read_register(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
 
     }
     
@@ -542,8 +574,124 @@ int get_range(vl53l0 *dev, uint8_t *buf){
 
 
 
+int read_multi(vl53l0 *dev, uint8_t reg, uint8_t *buf, uint8_t cnt)
+{
+    // First write the register address we want to read from
+    int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, &reg, 1, true);
+    // Now read count bytes into the dst buffer
+    if (succ == PICO_ERROR_NONE)
+    {
+        succ = i2c_read_blocking(dev->I2C_HW, VL53L0_ADDR, buf, cnt, false);
+    }
+
+    return succ;
+}
 
 
 
 
 
+
+
+// Get reference SPAD (single photon avalanche diode) count and type
+// based on VL53L0X_get_info_from_device(),
+// but only gets reference SPAD count and type
+int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture)
+{
+
+
+    write_register(dev, 0x80, 0x01);
+    write_register(dev,0xFF, 0x01);
+    write_register(dev,0x00, 0x00);
+
+    write_register(dev,0xFF, 0x06);
+
+
+    uint8_t reg_0x83_val;
+    printf("SPAD--------\n");
+    read_register(dev, 0x83, &reg_0x83_val);
+
+    write_register(dev,0x83, reg_0x83_val | 0x04);
+    write_register(dev,0xFF, 0x07);
+    write_register(dev,0x81, 0x01);
+
+    write_register(dev,0x80, 0x01);
+
+    write_register(dev,0x94, 0x6b);
+    write_register(dev,0x83, 0x00);
+    
+
+    int cnt = 0;
+
+    read_register(dev, 0x83, &reg_0x83_val);
+    while (reg_0x83_val == 0x00)
+    {
+        if (cnt > 500)
+        {
+            return -1;
+        }
+
+        cnt = cnt + 1;
+        read_register(dev, 0x83, &reg_0x83_val);
+
+    }
+
+    write_register(dev,0x83, 0x01);
+    uint8_t tmp;
+    read_register(dev, 0x92, &tmp);
+
+    *count = tmp & 0x7f;
+    *type_is_aperture = (tmp >> 7) & 0x01;
+
+    write_register(dev,0x81, 0x00);
+    write_register(dev,0xFF, 0x06);
+    read_register(dev, 0x83, &reg_0x83_val);
+    write_register(dev,0x83, reg_0x83_val & ~0x04);
+    write_register(dev,0xFF, 0x01);
+    write_register(dev,0x00, 0x01);
+
+    write_register(dev,0xFF, 0x00);
+    write_register(dev,0x80, 0x00);
+
+    return true;
+}
+
+int write_multi(vl53l0 *dev, uint8_t reg, uint8_t const *data, uint8_t count){
+
+    // Create a buffer that is one byte larger than count to accommodate the register address
+    uint8_t buffer[count + 1];
+    buffer[0] = reg; // First byte is register address
+    // Copy the src data into the buffer starting at the second byte
+    memcpy(buffer + 1, data, count);
+    // Write the buffer to I2C
+    return i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, buffer, count + 1, false);
+
+}
+
+
+// based on VL53L0X_perform_single_ref_calibration()
+bool performSingleRefCalibration(vl53l0 *dev, uint8_t vhv_init_byte)
+{
+    write_register(dev, SYSRANGE_START, 0x01 | vhv_init_byte); // VL53L0X_REG_SYSRANGE_MODE_START_STOP
+
+    int count = 0;
+
+    uint8_t int_stat;
+    read_register(dev, RESULT_INTERRUPT_STATUS, &int_stat);
+
+    while ((int_stat & 0x07) == 0)
+    {
+        if (count > 500)
+        {
+            return false;
+        }
+        read_register(dev, RESULT_INTERRUPT_STATUS, &int_stat);
+        count = count + 1;
+    }
+
+    write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+    write_register(dev, SYSRANGE_START, 0x00);
+
+    return true;
+}

@@ -90,6 +90,14 @@ typedef struct{
 #define FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT 0x44
 
 
+//SPAD STUFF
+#define GLOBAL_CONFIG_SPAD_ENABLES_REF_0 0xB0
+#define DYNAMIC_SPAD_REF_EN_START_OFFSET 0x4F
+#define DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD 0x4E
+#define GLOBAL_CONFIG_REF_EN_START_SELECT 0xB6
+
+
+
 
 
 
@@ -103,18 +111,10 @@ int setup_default_config();
 
 
 /*
-Write a single byte to the VL53L0
-
-Returns a success/fail int (1 - success, -1 - fail)
-
-*/
-int write_byte(vl53l0 *dev, uint8_t *byte);
-
-/*
 Read a single byte from the VL53L0
 Return a success/fail if the byte is written
 */
-int read_byte(vl53l0 *dev, uint8_t reg, uint8_t *buf);
+int read_register(vl53l0 *dev, uint8_t reg, uint8_t *buf);
 
 
 /*
@@ -131,6 +131,8 @@ int write_register(vl53l0 *dev, uint8_t reg, uint8_t data);
 //Read a 16 bit value from a (pair of) register(s)
 int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf);
 
+int read_multi(vl53l0 *dev, uint8_t reg, uint8_t *buf, uint8_t cnt);
+
 
 //Read a single range measurement from the ToF device
 int get_range(vl53l0 *dev, uint8_t *buf);
@@ -139,10 +141,9 @@ int get_range(vl53l0 *dev, uint8_t *buf);
 int write_16bit_register(vl53l0 *dev, uint8_t reg, uint16_t data);
 
 
-/*
-TO ADD:
--Read of a two byte value (i.e. range)
-*/
+int write_multi(vl53l0 *dev, uint8_t reg, uint8_t const *data, uint8_t count);
+
+bool performSingleRefCalibration(vl53l0 *dev, uint8_t vhv_init_byte);
 
 
 
