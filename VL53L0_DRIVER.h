@@ -35,6 +35,9 @@ typedef struct{
     //Hardware enable pin
     int EN_PIN;
 
+
+    uint8_t stop_variable;
+
 }vl53l0;
 
 #define DEFAULT_BAUD 100000
@@ -64,18 +67,27 @@ typedef struct{
 //Internal tuning
 #define INTERNAL_TUNING 0xFF
 
+//Sequence config
+#define SYSTEM_SEQUENCE_CONFIG 0x01
 
 //Range settings (i.e. tell sensor to start the range then the mode)
-#define VL53L0_SYSRANGE_START 0x00
-#define VL53L0_SYS_RANGE_MODE_SINGLE 0x00
-#define VL53L0_SYS_RANGE_MODE_CONTINUOUS 0x01
+#define SYSRANGE_START 0x00
+#define SYS_RANGE_MODE_SINGLE 0x00
+#define SYS_RANGE_MODE_CONTINUOUS 0x01
 
 //Range interrupt status 
-#define VL53L0_RANGE_RESULT_INTERRUPT_STATUS 0x13
+#define SYSTEM_INTERRUPT_CONFIG_GPIO 0x0A
+#define RESULT_INTERRUPT_STATUS 0x13
 #define SYSTEM_INTERRUPT_CLEAR 0x08
 
 //Range status register (i.e. the reading)
 #define VL53L0_RANGE_RESULT_STATUS 0x14
+
+//GPIO High Voltage
+#define GPIO_HV_MUX_ACTIVE_HIGH 0x84
+
+#define REG_MSRC_CONFIG_CONTROL 0x60
+#define FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT 0x44
 
 
 
@@ -102,7 +114,7 @@ int write_byte(vl53l0 *dev, uint8_t *byte);
 Read a single byte from the VL53L0
 Return a success/fail if the byte is written
 */
-int read_byte(vl53l0 *dev, uint8_t addr, uint8_t *buf);
+int read_byte(vl53l0 *dev, uint8_t reg, uint8_t *buf);
 
 
 /*
@@ -122,6 +134,10 @@ int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf);
 
 //Read a single range measurement from the ToF device
 int get_range(vl53l0 *dev, uint8_t *buf);
+
+//Write a value to a pair of byte registers
+int write_16bit_register(vl53l0 *dev, uint8_t reg, uint16_t data);
+
 
 /*
 TO ADD:
