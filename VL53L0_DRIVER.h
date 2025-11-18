@@ -106,6 +106,8 @@ typedef struct{
 //Initialise the pins to connect with the vl53l0
 vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin);
 
+
+
 //Setup the device to a default running state
 int setup_default_config();
 
