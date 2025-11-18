@@ -45,8 +45,6 @@ int load_def_config(vl53l0 *dev);
 int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture);
 int init_spad(vl53l0 *dev);
 
-//Copy the config order from the IDP micropython example to test whether the config works from that
-void py_init(vl53l0 *dev);
 
 int main()
 {
@@ -156,10 +154,9 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
        
 
         //Setup the default config of the device
-        //setup_default_config(&ToF_dev);
+        setup_default_config(&ToF_dev);
 
-        //Check the py config mode
-        py_init(&ToF_dev);
+   
 
 
         printf("ToF initialised\n");
@@ -705,47 +702,3 @@ bool performSingleRefCalibration(vl53l0 *dev, uint8_t vhv_init_byte)
 }
 
 
-
-//Copy the config setup from the IDP example driver
-void py_init(vl53l0 *dev){
-
-    write_register(dev, EXTSUP_2V8, 0x01);
-
-    write_register(dev, 0x88, 0x00);
-    write_register(dev, 0x80, 0x01);
-    write_register(dev, 0xff, 0x01);
-    write_register(dev, 0x00, 0x00);
-
-    read_register(dev, 0x91, &dev->stop_variable);
-
-    write_register(dev, 0x00, 0x01);
-    write_register(dev, 0xff, 0x00);
-    write_register(dev, 0x80, 0x00);
-
-    //Disable signal_rate_msrc and signal_rate_pre_range limit checks
-    uint8_t MSRC_read;
-    read_register(dev, REG_MSRC_CONFIG_CONTROL, &MSRC_read);
-    write_register(dev, REG_MSRC_CONFIG_CONTROL, MSRC_read | 0x12);
-
-    //Rate limit = 0.25
-    write_16bit_register(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, 32);
-
-    //Spad info
-
-
-    //Set reference spads
-
-
-    //Set the spads enabled
-
-
-    //Large config
-
-    //Set interupts
-
-    //Do calibrations
-    
-
-    //Set system sequence
-
-}
