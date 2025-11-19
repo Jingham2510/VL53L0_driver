@@ -167,8 +167,15 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
        
 
         //Setup the default config of the device
-        setup_default_config(&ToF_dev);
-        return ToF_dev;
+        if(setup_default_config(&ToF_dev)){
+
+        
+            return ToF_dev;
+        }else{
+            printf("SETUP FAILED \n");
+            printf("ToF UNINITIALISED\n");
+        }
+        
 
     }else{
         printf("Read byte - %d\n", buf);
@@ -182,7 +189,9 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 int setup_default_config(vl53l0 *dev){
 
     //Set the voltage mode to 2v8
-    write_register(dev, EXTSUP_2V8, 0x01);
+    uint8_t HV_buf;
+    read_register(dev, EXTSUP_2V8, &HV_buf);
+    write_register(dev, EXTSUP_2V8, HV_buf | 0x01);
 
     //Set the I2C mode to standard
     write_register(dev, I2C_MODE, I2C_MODE_STANDARD);
@@ -200,7 +209,7 @@ int setup_default_config(vl53l0 *dev){
     read_register(dev, REG_MSRC_CONFIG_CONTROL, &MSRC_read);
     write_register(dev, REG_MSRC_CONFIG_CONTROL, MSRC_read | 0x12);
 
-    write_16bit_register(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, 32);
+    write_16bit_register(dev, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, 0.25 *(1 << 7));
 
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xFF);
 
@@ -218,15 +227,19 @@ int setup_default_config(vl53l0 *dev){
     init_interrupt(dev);
 
 
+    write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xE8);
+
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0x01);
     if (!performSingleRefCalibration(dev, 0x40))
     {
+        printf("FAILED CALIB 1\n");
         return -1;
     }
 
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0x02);
     if (!performSingleRefCalibration(dev, 0x00))
     {
+        printf("FAILED CALIB 2\n");
         return -1;
     }
 
@@ -246,6 +259,7 @@ int init_spad(vl53l0 *dev){
     bool spad_type_is_aperture;
     if (get_spad_info(dev, &spad_count, &spad_type_is_aperture) == false)
     {
+        printf("SPAD FAILED");
         return false;
     }
 
@@ -383,7 +397,7 @@ int load_def_config(vl53l0 *dev){
     write_register(dev,0xFF, 0x00);
     write_register(dev,0x80, 0x00);
 
-    printf("Default config loaded\n");
+    //printf("Default config loaded\n");
 }
 
 //Setup the interrupt config so we can poll the device for when it is ready
@@ -428,6 +442,32 @@ int read_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
 }
 
 
+//Read a 16 bit value from a register
+int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
+
+
+    //Request the device primes the required register
+    int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, &reg, 1, true);
+
+    if(succ = 1){
+
+        succ = i2c_read_blocking(dev->I2C_HW, VL53L0_ADDR, buf, 2, false);
+
+        if (succ == 2){
+            return 1;
+        }else{
+            //Dont return succ here as there is a risk that it equates to 1 (i.e. 1 byte read)
+            return -1;
+        }
+
+    }else{
+        printf("FAILED TO READ REGISTER");
+        return -1;
+    }
+
+}
+
+
 //Updates a value in a register
 int write_register(vl53l0 *dev, uint8_t reg, uint8_t data){
 
@@ -455,7 +495,7 @@ int write_16bit_register(vl53l0 *dev, uint8_t reg, uint16_t data){
     data_to_write[0] = reg;
     //MSB first
     //Rightshift the top byte to sit in the lower byte
-    data_to_write[1] = data  >> 8;
+    data_to_write[1] = (data >> 8) & 0xFF;
     //Mask with a full lower byte
     data_to_write[2] = data & 0x00FF;
 
@@ -474,32 +514,6 @@ int write_16bit_register(vl53l0 *dev, uint8_t reg, uint16_t data){
 }
 
 
-//Read a 16 bit value from a register
-int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
-
-
-    //Request the device primes the required register
-    int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, &reg, 1, true);
-
-    if(succ = 1){
-
-        succ = i2c_read_blocking(dev->I2C_HW, VL53L0_ADDR, buf, 2, false);
-
-        if (succ == 2){
-            return 1;
-        }else{
-            //Dont return succ here as there is a risk that it equates to 1 (i.e. 1 byte read)
-            return -1;
-        }
-
-
-    }else{
-        printf("FAILED TO READ REGISTER");
-        return -1;
-    }
-
-
-}
 
 
 //Read the range from the device
@@ -674,10 +688,13 @@ bool performSingleRefCalibration(vl53l0 *dev, uint8_t vhv_init_byte)
 
     while ((int_stat & 0x07) == 0)
     {
-        if (count > 500)
+        sleep_us(5000);
+        if (count > 50)
         {
+            printf("CALIBRATION INTERRUPT TIMEOUT\n");
             return false;
         }
+        
         read_register(dev, RESULT_INTERRUPT_STATUS, &int_stat);
         count = count + 1;
     }
