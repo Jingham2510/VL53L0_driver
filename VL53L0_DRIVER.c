@@ -44,6 +44,9 @@ int init_interrupt(vl53l0 *dev);
 int load_def_config(vl53l0 *dev);
 int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture);
 int init_spad(vl53l0 *dev);
+void start_continuous_mode(vl53l0 *dev);
+int read_continuous_mode(vl53l0 *dev, uint8_t *buf);
+void stop_continuous_mode(vl53l0 *dev);
 
 
 int main()
@@ -57,13 +60,23 @@ int main()
     //Initialise the ToF
     vl53l0 ToF = init_vl53l0(0, I2C_SDA, I2C_SCL, EN_P);
 
+    //Start the reading
+    start_continuous_mode(&ToF);
+
 
     //16 bits is 2 lots of 8 bit registers
     int8_t result[2];
 
-    if(get_range(&ToF, result) == 1){
-        printf("RANGE VAL: %d", result);
+
+
+    //Attempt to get a range until the device provides a valid one
+    while(read_continuous_mode(&ToF, result) != 1){
+        //printf("RANGE VAL: %d\n", result);
     }
+    
+    printf("RANGE VAL: %d", result);
+
+    stop_continuous_mode(&ToF);
 
     return 1;
 
@@ -155,11 +168,6 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 
         //Setup the default config of the device
         setup_default_config(&ToF_dev);
-
-   
-
-
-        printf("ToF initialised\n");
         return ToF_dev;
 
     }else{
@@ -197,16 +205,6 @@ int setup_default_config(vl53l0 *dev){
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xFF);
 
 
-    //Setup the power management
-    write_register(dev, POW_MGMT, 0x01);
-
-    //Internal tuning
-    write_register(dev, INTERNAL_TUNING, 0x01);
-
-    //Set the default range mode
-    write_register(dev, SYSRANGE_START, SYS_RANGE_MODE_SINGLE);
-
-
 
     
     //SPAD calibration
@@ -235,6 +233,7 @@ int setup_default_config(vl53l0 *dev){
     // "restore the previous Sequence Config"
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xE8);
 
+    printf("Default config setup");
 }
 
 
@@ -392,22 +391,11 @@ int init_interrupt(vl53l0 *dev){
 
     write_register(dev, SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04);
 
-    printf("PRE_HV\n");
 
     uint8_t HV_MUX = 0;
     read_register(dev, GPIO_HV_MUX_ACTIVE_HIGH, &HV_MUX);
     write_register(dev, GPIO_HV_MUX_ACTIVE_HIGH, (HV_MUX & ~0x10));
     write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
-
-
-
-    //TIMING BUDGET CONST
-    //const uint16_t TIME_BUDGET_us = 2870;
-    write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xe8);
-
-   
-
-
 
 
 }
@@ -466,8 +454,10 @@ int write_16bit_register(vl53l0 *dev, uint8_t reg, uint16_t data){
     uint8_t data_to_write[3];
     data_to_write[0] = reg;
     //MSB first
-    data_to_write[1] = (data >> 8) & 0xFF;
-    data_to_write[2] = data & 0xFF;
+    //Rightshift the top byte to sit in the lower byte
+    data_to_write[1] = data  >> 8;
+    //Mask with a full lower byte
+    data_to_write[2] = data & 0x00FF;
 
 
     int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, data_to_write, 3, false);
@@ -524,12 +514,8 @@ int get_range(vl53l0 *dev, uint8_t *buf){
     write_register(dev, 0xFF, 0x00);
     write_register(dev, 0x80, 0x00);
 
-
-
-
-
     //Tell the device to take a measurement
-    write_register(dev, SYSRANGE_START, SYS_RANGE_MODE_SINGLE);
+    write_register(dev, SYSRANGE_START, 0x01);
 
     printf("DEVICE TOLD TO MEASURE-----------\n");
     int timeout = 0;
@@ -553,23 +539,25 @@ int get_range(vl53l0 *dev, uint8_t *buf){
 
     
    //Wait until the device has a measurement ready
-    while ((timeout_buf & 0x07) == 0){        
-        timeout++;
-        sleep_us(5000);
+    while ((timeout_buf & 0x07) == 0){      
         
+        //printf("(%04x)", timeout_buf);
 
-        if (timeout> 50){
-                printf("INTERRUPT READING TIMEOUT");
+        timeout++;
+        sleep_us(5000);        
+
+        if (timeout > 50){
+                printf("INTERRUPT READING TIMEOUT\n");
+                //break;
                 return -1;
         }
-
         read_register(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
 
     }
     
 
     //Read the range value (2 bytes)
-    read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS, buf);
+    read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS + 10, buf);
 
     //Clear the interupts
     return write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
@@ -699,6 +687,69 @@ bool performSingleRefCalibration(vl53l0 *dev, uint8_t vhv_init_byte)
     write_register(dev, SYSRANGE_START, 0x00);
 
     return true;
+}
+
+
+//Start the device running in continious measurement mode
+void start_continuous_mode(vl53l0 *dev){
+
+    write_register(dev, 0x80, 0x01);
+    write_register(dev, 0xFF, 0x01);
+    write_register(dev, 0x00, 0x00);
+    write_register(dev, 0x91, dev->stop_variable);
+    write_register(dev, 0x00, 0x01);
+    write_register(dev, 0xFF, 0x00);
+    write_register(dev, 0x80, 0x00);
+
+    write_register(dev, SYSRANGE_START, 0x02);
+
+}
+
+//Read a value from continious mode
+int read_continuous_mode(vl53l0 *dev, uint8_t *buf){
+    
+    int timeout = 0;
+    uint8_t timeout_buf;
+    
+    read_register(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
+
+    
+   //Wait until the device has a measurement ready
+    while ((timeout_buf & 0x07) == 0){       
+    
+
+        timeout++;
+        sleep_us(5000);        
+
+        if (timeout > 50){
+                printf("INTERRUPT READING TIMEOUT\n");
+                //break;
+                return -1;
+        }
+        read_register(dev, RESULT_INTERRUPT_STATUS, &timeout_buf);
+
+    }
+    
+
+    //Read the range value (2 bytes)
+    read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS + 10, buf);
+
+    //Clear the interupts
+    return write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+}
+
+//Stop continious mode measurement
+void stop_continuous_mode(vl53l0 *dev){
+
+    write_register(dev, SYSRANGE_START, 0x02);
+
+    write_register(dev, 0xFF, 0x01);
+    write_register(dev, 0x00, 0x00);
+    write_register(dev, 0x91, dev->stop_variable);
+    write_register(dev, 0x00, 0x01);
+    write_register(dev, 0xFF, 0x00);
+
 }
 
 
