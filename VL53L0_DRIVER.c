@@ -45,7 +45,7 @@ int load_def_config(vl53l0 *dev);
 int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture);
 int init_spad(vl53l0 *dev);
 void start_continuous_mode(vl53l0 *dev);
-int read_continuous_mode(vl53l0 *dev, uint8_t *buf);
+uint16_t read_continuous_mode(vl53l0 *dev);
 void stop_continuous_mode(vl53l0 *dev);
 
 
@@ -64,17 +64,15 @@ int main()
     start_continuous_mode(&ToF);
 
 
-    //16 bits is 2 lots of 8 bit registers
-    int8_t result[2];
-
+  
 
 
     //Attempt to get a range until the device provides a valid one
-    while(read_continuous_mode(&ToF, result) != 1){
-        //printf("RANGE VAL: %d\n", result);
+    while(true){
+        printf("RANGE VAL: %d\n", read_continuous_mode(&ToF));
     }
     
-    printf("RANGE VAL: %d", result);
+    //printf("RANGE VAL: %d", result);
 
     stop_continuous_mode(&ToF);
 
@@ -143,10 +141,10 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
     gpio_pull_up(SCL_pin);
 
     //Setup the enable pin - and turn it off
-    gpio_set_function(EN_pin, GPIO_FUNC_SIO);
-    gpio_set_dir(EN_pin, true);
-    gpio_pull_down(EN_pin);
-    gpio_put(EN_pin, false);
+    //gpio_set_function(EN_pin, GPIO_FUNC_SIO);
+    //gpio_set_dir(EN_pin, true);
+    //gpio_pull_down(EN_pin);
+    //gpio_put(EN_pin, false);
 
 
     //Create the vl53l0 struct
@@ -161,15 +159,13 @@ vl53l0 init_vl53l0(int I2C_HW, int SDA_pin, int SCL_pin, int EN_pin){
 
     //Verify that we are connected to correct device
     uint8_t buf;
-    int succ = read_register(&ToF_dev, MODEL_ID, &buf);
+   read_register(&ToF_dev, MODEL_ID, &buf);
 
-    if (succ == 1 && buf == EXPECTED_ID){      
+    if (buf == EXPECTED_ID){      
        
 
         //Setup the default config of the device
-        if(setup_default_config(&ToF_dev)){
-
-        
+        if(setup_default_config(&ToF_dev)){        
             return ToF_dev;
         }else{
             printf("SETUP FAILED \n");
@@ -201,7 +197,7 @@ int setup_default_config(vl53l0 *dev){
     //Assign the stop variable
     read_register(dev, 0x91, &dev->stop_variable);
     write_register(dev, 0x00, 0x01);
-    write_register(dev, 0xff, 0x00);
+    write_register(dev, 0xFF, 0x00);
     write_register(dev, 0x80, 0x00);
 
 
@@ -227,7 +223,11 @@ int setup_default_config(vl53l0 *dev){
     init_interrupt(dev);
 
 
-    write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xE8);
+    //Timing budget guesstimate
+    //write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xE8);
+    //write_16bit_register(dev, FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI, 20000);
+
+
 
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0x01);
     if (!performSingleRefCalibration(dev, 0x40))
@@ -247,6 +247,8 @@ int setup_default_config(vl53l0 *dev){
     write_register(dev, SYSTEM_SEQUENCE_CONFIG, 0xE8);
 
     printf("Default config setup");
+
+    
 }
 
 
@@ -257,7 +259,7 @@ int init_spad(vl53l0 *dev){
     uint8_t spad_count, spad_type_is_apeture;
     
     bool spad_type_is_aperture;
-    if (get_spad_info(dev, &spad_count, &spad_type_is_aperture) == false)
+    if (!get_spad_info(dev, &spad_count, &spad_type_is_aperture))
     {
         printf("SPAD FAILED");
         return false;
@@ -405,7 +407,6 @@ int init_interrupt(vl53l0 *dev){
 
     write_register(dev, SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04);
 
-
     uint8_t HV_MUX = 0;
     read_register(dev, GPIO_HV_MUX_ACTIVE_HIGH, &HV_MUX);
     write_register(dev, GPIO_HV_MUX_ACTIVE_HIGH, (HV_MUX & ~0x10));
@@ -443,8 +444,11 @@ int read_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
 
 
 //Read a 16 bit value from a register
-int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
+uint16_t read_16_bit_register(vl53l0 *dev, uint8_t reg){
 
+
+
+    uint8_t buf[2] = {0, 0};
 
     //Request the device primes the required register
     int succ = i2c_write_blocking(dev->I2C_HW, VL53L0_ADDR, &reg, 1, true);
@@ -453,17 +457,11 @@ int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf){
 
         succ = i2c_read_blocking(dev->I2C_HW, VL53L0_ADDR, buf, 2, false);
 
-        if (succ == 2){
-            return 1;
-        }else{
-            //Dont return succ here as there is a risk that it equates to 1 (i.e. 1 byte read)
-            return -1;
-        }
-
-    }else{
-        printf("FAILED TO READ REGISTER");
-        return -1;
+        return (uint16_t)(buf[0] << 8 | buf[1]);
     }
+
+
+  
 
 }
 
@@ -571,10 +569,12 @@ int get_range(vl53l0 *dev, uint8_t *buf){
     
 
     //Read the range value (2 bytes)
-    read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS + 10, buf);
+    uint16_t val = read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS + 10);
 
     //Clear the interupts
-    return write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
+    write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+    return val;
 
 }
 
@@ -615,9 +615,7 @@ int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture)
 
 
     uint8_t reg_0x83_val;
-    printf("SPAD--------\n");
     read_register(dev, 0x83, &reg_0x83_val);
-
     write_register(dev,0x83, reg_0x83_val | 0x04);
     write_register(dev,0xFF, 0x07);
     write_register(dev,0x81, 0x01);
@@ -633,6 +631,9 @@ int get_spad_info(vl53l0 *dev, uint8_t *count, bool *type_is_aperture)
     read_register(dev, 0x83, &reg_0x83_val);
     while (reg_0x83_val == 0x00)
     {
+
+        sleep_us(5000);
+
         if (cnt > 500)
         {
             return -1;
@@ -692,6 +693,7 @@ bool performSingleRefCalibration(vl53l0 *dev, uint8_t vhv_init_byte)
         if (count > 50)
         {
             printf("CALIBRATION INTERRUPT TIMEOUT\n");
+
             return false;
         }
         
@@ -723,7 +725,7 @@ void start_continuous_mode(vl53l0 *dev){
 }
 
 //Read a value from continious mode
-int read_continuous_mode(vl53l0 *dev, uint8_t *buf){
+uint16_t read_continuous_mode(vl53l0 *dev){
     
     int timeout = 0;
     uint8_t timeout_buf;
@@ -749,10 +751,12 @@ int read_continuous_mode(vl53l0 *dev, uint8_t *buf){
     
 
     //Read the range value (2 bytes)
-    read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS + 10, buf);
+    uint16_t val = read_16_bit_register(dev, VL53L0_RANGE_RESULT_STATUS + 10);
 
     //Clear the interupts
-    return write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
+    write_register(dev, SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+    return val;
 
 }
 

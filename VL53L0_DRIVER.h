@@ -78,7 +78,7 @@ typedef struct{
 //Range interrupt status 
 #define SYSTEM_INTERRUPT_CONFIG_GPIO 0x0A
 #define RESULT_INTERRUPT_STATUS 0x13
-#define SYSTEM_INTERRUPT_CLEAR 0x08
+#define SYSTEM_INTERRUPT_CLEAR 0x0B
 
 //Range status register (i.e. the reading)
 #define VL53L0_RANGE_RESULT_STATUS 0x14
@@ -96,6 +96,8 @@ typedef struct{
 #define DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD 0x4E
 #define GLOBAL_CONFIG_REF_EN_START_SELECT 0xB6
 
+
+#define FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI 0x71
 
 
 
@@ -131,7 +133,7 @@ int write_register(vl53l0 *dev, uint8_t reg, uint8_t data);
 
 
 //Read a 16 bit value from a (pair of) register(s)
-int read_16_bit_register(vl53l0 *dev, uint8_t reg, uint8_t *buf);
+uint16_t read_16_bit_register(vl53l0 *dev, uint8_t reg);
 
 int read_multi(vl53l0 *dev, uint8_t reg, uint8_t *buf, uint8_t cnt);
 
